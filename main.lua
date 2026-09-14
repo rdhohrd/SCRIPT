@@ -2,14 +2,17 @@
 -- Executor: Delta (sUNC/UNC Compatible)
 -- Architecture: Standard ScreenGui for mobile reliability, Camera CFrame lerp for mobile aimbot.
 -- Patched: UIStroke for ESP boxes, floating hide/show button, IgnoreGuiInset for accurate ESP.
--- Added: Silent Aim (crash-fixed), Visible Check, Team Check, Target Part cycle, FOV circle.
--- Fixed: tracer line terminates at the bottom edge of the ESP box (feet), not box center.
+-- Added: Visible Check, Team Check, Target Part cycle, FOV circle.
+-- Silent Aim: PC-only rebuild — mouse-position target pick, hook never installs on touch devices.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
+
+-- Platform gate: silent aim lives on desktop only
+local isPC = UserInputService.MouseEnabled and not UserInputService.TouchEnabled
 
 -- Cleanup previous instances
 if game.CoreGui:FindFirstChild("Delta_Mobile_Hack") then
@@ -257,7 +260,9 @@ createCycle(aimTab, "Target Part", {
     {label = "Torso", value = "Torso"},
     {label = "Root", value = "HumanoidRootPart"}
 }, 1, function(v) Settings.Aimbot.TargetPart = v end)
-createToggle(aimTab, "Silent Aim", Settings.Aimbot.SilentAim, function(v) Settings.Aimbot.SilentAim = v end)
+if isPC then
+    createToggle(aimTab, "Silent Aim", Settings.Aimbot.SilentAim, function(v) Settings.Aimbot.SilentAim = v end)
+end
 createToggle(aimTab, "Visible Check", Settings.Aimbot.VisibleCheck, function(v) Settings.Aimbot.VisibleCheck = v end)
 createToggle(aimTab, "Team Check", Settings.Aimbot.TeamCheck, function(v) Settings.Aimbot.TeamCheck = v end)
 createToggle(aimTab, "FOV Circle", Settings.Aimbot.ShowFOV, function(v) Settings.Aimbot.ShowFOV = v end)
@@ -489,7 +494,7 @@ local function isVisible(targetCharacter, targetPart)
     return true
 end
 
--- Aimbot Logic
+-- Aimbot Logic (screen-center based, works on both platforms)
 local function getClosestPlayer()
     local closestPlayer = nil
     local shortestDistance = Settings.Aimbot.FOV
@@ -522,10 +527,45 @@ local function getClosestPlayer()
     return closestPlayer
 end
 
--- Silent Aim Hook (crash-fixed)
+-- Silent Aim target pick (PC only): closest valid player to the mouse cursor
+local function getClosestPlayerToMouse()
+    local closestPlayer = nil
+    local shortestDistance = Settings.Aimbot.FOV
+    local mousePos = UserInputService:GetMouseLocation()
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            if isSameTeam(player) then continue end
+
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            local humanoid = player.Character:FindFirstChild("Humanoid")
+
+            if hrp and humanoid and humanoid.Health > 0 then
+                local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+                if onScreen and pos.Z > 0 then
+                    local dx = pos.X - mousePos.X
+                    local dy = pos.Y - mousePos.Y
+                    local distance = math.sqrt(dx^2 + dy^2)
+
+                    if distance < shortestDistance then
+                        local aimPart = getAimPart(player.Character)
+                        if isVisible(player.Character, aimPart) then
+                            shortestDistance = distance
+                            closestPlayer = player
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+-- Silent Aim Hook (PC only, crash-fixed)
+-- Never installs on touch devices — mobile stays clean.
 -- Early return for non-raycast methods prevents performance crash.
 -- pcall guards against character destruction race conditions.
-if hookmetamethod and getnamecallmethod then
+if isPC and hookmetamethod and getnamecallmethod then
     local oldNamecall
 
     local function silentAimHandler(self, ...)
@@ -603,15 +643,14 @@ RunService.RenderStepped:Connect(function()
         FOVCircle.Visible = false
     end
 
-    local target = getClosestPlayer()
-
-    if Settings.Aimbot.SilentAim then
-        SilentTarget = target
+    if isPC and Settings.Aimbot.SilentAim then
+        SilentTarget = getClosestPlayerToMouse()
     else
         SilentTarget = nil
     end
 
     if Settings.Aimbot.Enabled then
+        local target = getClosestPlayer()
         if target and target.Character then
             local part = getAimPart(target.Character)
             if part then
