@@ -1,9 +1,3 @@
--- Roblox Mobile ESP & Aimbot
--- Executor: Delta (sUNC/UNC Compatible)
--- Architecture: Standard ScreenGui for mobile reliability, Camera CFrame lerp for mobile aimbot.
--- Patched: UIStroke for ESP boxes, floating hide/show button, IgnoreGuiInset for accurate ESP.
--- Added: Visible Check, Team Check, Target Part cycle, FOV circle.
--- Silent Aim: PC-only rebuild — mouse-position target pick, hook never installs on touch devices.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -11,8 +5,22 @@ local UserInputService = game:GetService("UserInputService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
--- Platform gate: silent aim lives on desktop only
+-- Platform gate: silent aim and fire-only aim live on desktop only
 local isPC = UserInputService.MouseEnabled and not UserInputService.TouchEnabled
+
+-- Fire state tracking (MouseButton1 held)
+local firing = false
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end -- UI clicks are not shots
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        firing = true
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        firing = false
+    end
+end)
 
 -- Cleanup previous instances
 if game.CoreGui:FindFirstChild("Delta_Mobile_Hack") then
@@ -43,7 +51,8 @@ local Settings = {
         SilentAim = false,
         VisibleCheck = false,
         TeamCheck = false,
-        ShowFOV = false
+        ShowFOV = false,
+        FireOnly = false
     }
 }
 
@@ -262,6 +271,7 @@ createCycle(aimTab, "Target Part", {
 }, 1, function(v) Settings.Aimbot.TargetPart = v end)
 if isPC then
     createToggle(aimTab, "Silent Aim", Settings.Aimbot.SilentAim, function(v) Settings.Aimbot.SilentAim = v end)
+    createToggle(aimTab, "Aim On Fire", Settings.Aimbot.FireOnly, function(v) Settings.Aimbot.FireOnly = v end)
 end
 createToggle(aimTab, "Visible Check", Settings.Aimbot.VisibleCheck, function(v) Settings.Aimbot.VisibleCheck = v end)
 createToggle(aimTab, "Team Check", Settings.Aimbot.TeamCheck, function(v) Settings.Aimbot.TeamCheck = v end)
@@ -650,12 +660,16 @@ RunService.RenderStepped:Connect(function()
     end
 
     if Settings.Aimbot.Enabled then
-        local target = getClosestPlayer()
-        if target and target.Character then
-            local part = getAimPart(target.Character)
-            if part then
-                local targetCFrame = CFrame.new(Camera.CFrame.Position, part.Position)
-                Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, Settings.Aimbot.Smoother)
+        -- Fire-Only gate: on PC with the toggle on, camera locks only while MouseButton1 is held
+        local shouldAim = not Settings.Aimbot.FireOnly or firing
+        if shouldAim then
+            local target = getClosestPlayer()
+            if target and target.Character then
+                local part = getAimPart(target.Character)
+                if part then
+                    local targetCFrame = CFrame.new(Camera.CFrame.Position, part.Position)
+                    Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, Settings.Aimbot.Smoother)
+                end
             end
         end
     end
